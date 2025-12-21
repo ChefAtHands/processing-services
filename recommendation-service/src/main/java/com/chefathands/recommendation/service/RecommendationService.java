@@ -1,9 +1,14 @@
 package com.chefathands.recommendation.service;
 
+import com.chefathands.recommendation.client.IngredientServiceClient;
 import com.chefathands.recommendation.dto.IngredientRequest;
 import com.chefathands.recommendation.dto.RecipeFilters;
+import com.chefathands.recommendation.dto.RecommendationResponse;
+import com.chefathands.recommendation.dto.UserIngredientDTO;
 import com.chefathands.recommendation.model.Recipe;
 import com.chefathands.recommendation.model.RecipeIngredient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -13,157 +18,133 @@ import java.util.stream.Collectors;
 
 @Service
 public class RecommendationService {
+    
+    private static final Logger logger = LoggerFactory.getLogger(RecommendationService.class);
+    
+    private final IngredientServiceClient ingredientServiceClient;
+    private final com.chefathands.recommendation.client.RecipeSearchClient recipeSearchClient;
+    
+    public RecommendationService(IngredientServiceClient ingredientServiceClient,
+                                 com.chefathands.recommendation.client.RecipeSearchClient recipeSearchClient) {
+        this.ingredientServiceClient = ingredientServiceClient;
+        this.recipeSearchClient = recipeSearchClient;
+    }
 
     /**
      * Get recipe recommendations based on user's saved ingredients
      * 
      * @param userId User ID
-     * @param offset Pagination offset
-     * @param limit Pagination limit
-     * @param filters Recipe filters (nutritional values, category)
-     * @return List of recommended recipes
+     * @param filters Recipe filters (diet, type, nutritional values, pagination)
+     * @return RecommendationResponse with recipes and metadata
      */
-    public List<Recipe> getRecommendationsForUser(Long userId, Integer offset, Integer limit, RecipeFilters filters) {
-        // TODO: Implement actual logic to:
-        // 1. Fetch user's saved ingredients from ingredient-service or database
-        // 2. Query recipe database/service for matching recipes
-        // 3. Apply filters (nutritional values, category)
-        // 4. Apply pagination
+    public RecommendationResponse getRecommendationsForUser(Long userId, RecipeFilters filters) {
+        logger.info("Getting recommendations for user {}", userId);
         
-        // Mock data for now
-        List<Recipe> allRecipes = getMockRecipes();
+        // 1. Fetch user's saved ingredients from ingredient-service
+        List<UserIngredientDTO> userIngredients = ingredientServiceClient.getUserIngredients(userId);
+        logger.debug("User {} has {} saved ingredients", userId, userIngredients.size());
         
-        // Apply filters
-        List<Recipe> filteredRecipes = applyFilters(allRecipes, filters);
+        // 2. Convert to ingredient names for external API
+        List<String> ingredientNames = userIngredients.stream()
+            .map(ui -> "ingredient_" + ui.getIngredientId()) // TODO: Map IDs to actual names
+            .collect(Collectors.toList());
         
-        // Apply pagination
-        return applyPagination(filteredRecipes, offset, limit);
+        if (ingredientNames.isEmpty()) {
+            logger.info("User {} has no ingredients, returning empty result", userId);
+            return new RecommendationResponse(new ArrayList<>(), 0, 
+                filters.getOffset() != null ? filters.getOffset() : 0, 
+                filters.getNumber() != null ? filters.getNumber() : 10);
+        }
+        
+        // 3. Call external API service with filters (handles filtering and pagination)
+        RecipeSearchRequest searchRequest = new RecipeSearchRequest();
+        searchRequest.setIngredients(ingredientNames);
+        searchRequest.setNumber(filters.getNumber() != null ? filters.getNumber() : 10);
+        searchRequest.setOffset(filters.getOffset() != null ? filters.getOffset() : 0);
+        searchRequest.setDiet(filters.getDiet());
+        searchRequest.setType(filters.getType());
+        searchRequest.setMinProtein(filters.getMinProtein());
+        searchRequest.setMaxProtein(filters.getMaxProtein());
+        searchRequest.setMinCarbs(filters.getMinCarbs());
+        searchRequest.setMaxCarbs(filters.getMaxCarbs());
+        searchRequest.setMinCalories(filters.getMinCalories());
+        searchRequest.setMaxCalories(filters.getMaxCalories());
+        searchRequest.setMinFat(filters.getMinFat());
+        searchRequest.setMaxFat(filters.getMaxFat());
+
+        RecipeSearchResponse externalResponse = recipeSearchClient.search(searchRequest);
+        if (externalResponse == null) {
+            // Fallback to empty
+            return new RecommendationResponse(new ArrayList<>(), 0,
+                filters.getOffset() != null ? filters.getOffset() : 0,
+                filters.getNumber() != null ? filters.getNumber() : 10);
+        }
+
+        List<Recipe> results = externalResponse.getResults();
+        Integer total = externalResponse.getTotalResults() != null ? externalResponse.getTotalResults() : (results != null ? results.size() : 0);
+        Integer offset = externalResponse.getOffset() != null ? externalResponse.getOffset() : (filters.getOffset() != null ? filters.getOffset() : 0);
+        Integer number = externalResponse.getNumber() != null ? externalResponse.getNumber() : (filters.getNumber() != null ? filters.getNumber() : 10);
+
+        return new RecommendationResponse(results != null ? results : new ArrayList<>(), total, offset, number);
     }
 
     /**
      * Get recipe recommendations based on provided ingredients
      * 
      * @param ingredients List of ingredients with quantities
-     * @param offset Pagination offset
-     * @param limit Pagination limit
-     * @param filters Recipe filters (nutritional values, category)
-     * @return List of recommended recipes
+     * @param filters Recipe filters (diet, type, nutritional values, pagination)
+     * @return RecommendationResponse with recipes and metadata
      */
-    public List<Recipe> getRecommendationsByIngredients(List<IngredientRequest> ingredients, 
-                                                         Integer offset, 
-                                                         Integer limit, 
-                                                         RecipeFilters filters) {
-        // TODO: Implement actual logic to:
-        // 1. Match recipes that can be made with provided ingredients
-        // 2. Rank by ingredient match percentage
-        // 3. Apply filters
-        // 4. Apply pagination
-        
-        // Mock data for now
-        List<Recipe> allRecipes = getMockRecipes();
-        
-        // Filter recipes that contain at least one of the provided ingredients
-        List<Recipe> matchingRecipes = filterByIngredients(allRecipes, ingredients);
-        
-        // Apply additional filters
-        List<Recipe> filteredRecipes = applyFilters(matchingRecipes, filters);
-        
-        // Apply pagination
-        return applyPagination(filteredRecipes, offset, limit);
-    }
+    public RecommendationResponse getRecommendationsByIngredients(List<IngredientRequest> ingredients, 
+                                                                   RecipeFilters filters) {
+        logger.info("Getting recommendations for {} provided ingredients",
+            ingredients != null ? ingredients.size() : 0);
 
-    /**
-     * Get total count of recipes matching criteria for user
-     */
-    public int getTotalCountForUser(Long userId, RecipeFilters filters) {
-        // TODO: Implement actual count query
-        List<Recipe> allRecipes = getMockRecipes();
-        return applyFilters(allRecipes, filters).size();
-    }
-
-    /**
-     * Get total count of recipes matching criteria for ingredients
-     */
-    public int getTotalCountByIngredients(List<IngredientRequest> ingredients, RecipeFilters filters) {
-        // TODO: Implement actual count query
-        List<Recipe> allRecipes = getMockRecipes();
-        List<Recipe> matchingRecipes = filterByIngredients(allRecipes, ingredients);
-        return applyFilters(matchingRecipes, filters).size();
-    }
-
-    // Helper methods
-
-    private List<Recipe> applyFilters(List<Recipe> recipes, RecipeFilters filters) {
-        if (filters == null) {
-            return recipes;
-        }
-
-        return recipes.stream()
-            .filter(recipe -> {
-                if (filters.getCategory() != null && !filters.getCategory().equalsIgnoreCase(recipe.getCategory())) {
-                    return false;
-                }
-                if (filters.getMinProtein() != null && (recipe.getProtein() == null || recipe.getProtein() < filters.getMinProtein())) {
-                    return false;
-                }
-                if (filters.getMaxProtein() != null && (recipe.getProtein() == null || recipe.getProtein() > filters.getMaxProtein())) {
-                    return false;
-                }
-                if (filters.getMinCarbs() != null && (recipe.getCarbs() == null || recipe.getCarbs() < filters.getMinCarbs())) {
-                    return false;
-                }
-                if (filters.getMaxCarbs() != null && (recipe.getCarbs() == null || recipe.getCarbs() > filters.getMaxCarbs())) {
-                    return false;
-                }
-                if (filters.getMinFat() != null && (recipe.getFat() == null || recipe.getFat() < filters.getMinFat())) {
-                    return false;
-                }
-                if (filters.getMaxFat() != null && (recipe.getFat() == null || recipe.getFat() > filters.getMaxFat())) {
-                    return false;
-                }
-                if (filters.getMinCalories() != null && (recipe.getCalories() == null || recipe.getCalories() < filters.getMinCalories())) {
-                    return false;
-                }
-                if (filters.getMaxCalories() != null && (recipe.getCalories() == null || recipe.getCalories() > filters.getMaxCalories())) {
-                    return false;
-                }
-                return true;
-            })
-            .collect(Collectors.toList());
-    }
-
-    private List<Recipe> filterByIngredients(List<Recipe> recipes, List<IngredientRequest> ingredients) {
-        if (ingredients == null || ingredients.isEmpty()) {
-            return recipes;
-        }
-
-        List<Long> ingredientIds = ingredients.stream()
-            .map(IngredientRequest::getIngredientID)
+        // Convert to ingredient names for external API
+        List<String> ingredientNames = ingredients.stream()
+            .map(IngredientRequest::getName)
             .collect(Collectors.toList());
 
-        return recipes.stream()
-            .filter(recipe -> {
-                if (recipe.getIngredients() == null || recipe.getIngredients().isEmpty()) {
-                    return false;
-                }
-                return recipe.getIngredients().stream()
-                    .anyMatch(ri -> ingredientIds.contains(ri.getIngredientId()));
-            })
-            .collect(Collectors.toList());
-    }
-
-    private List<Recipe> applyPagination(List<Recipe> recipes, Integer offset, Integer limit) {
-        int start = (offset != null) ? offset : 0;
-        int end = (limit != null) ? Math.min(start + limit, recipes.size()) : recipes.size();
-        
-        if (start >= recipes.size()) {
-            return new ArrayList<>();
+        if (ingredientNames.isEmpty()) {
+            logger.info("No ingredients provided, returning empty result");
+            return new RecommendationResponse(new ArrayList<>(), 0,
+                filters.getOffset() != null ? filters.getOffset() : 0,
+                filters.getNumber() != null ? filters.getNumber() : 10);
         }
-        
-        return recipes.subList(start, end);
+
+        // Build request for external recipe-search-service
+        com.chefathands.recommendation.client.RecipeSearchRequest searchRequest = new com.chefathands.recommendation.client.RecipeSearchRequest();
+        searchRequest.setIngredients(ingredientNames);
+        searchRequest.setNumber(filters.getNumber() != null ? filters.getNumber() : 10);
+        searchRequest.setOffset(filters.getOffset() != null ? filters.getOffset() : 0);
+        searchRequest.setDiet(filters.getDiet());
+        searchRequest.setType(filters.getType());
+        searchRequest.setMinProtein(filters.getMinProtein());
+        searchRequest.setMaxProtein(filters.getMaxProtein());
+        searchRequest.setMinCarbs(filters.getMinCarbs());
+        searchRequest.setMaxCarbs(filters.getMaxCarbs());
+        searchRequest.setMinCalories(filters.getMinCalories());
+        searchRequest.setMaxCalories(filters.getMaxCalories());
+        searchRequest.setMinFat(filters.getMinFat());
+        searchRequest.setMaxFat(filters.getMaxFat());
+
+        com.chefathands.recommendation.client.RecipeSearchResponse externalResponse = recipeSearchClient.search(searchRequest);
+        if (externalResponse == null) {
+            // Fallback to empty
+            return new RecommendationResponse(new ArrayList<>(), 0,
+                filters.getOffset() != null ? filters.getOffset() : 0,
+                filters.getNumber() != null ? filters.getNumber() : 10);
+        }
+
+        List<Recipe> results = externalResponse.getResults();
+        Integer total = externalResponse.getTotalResults() != null ? externalResponse.getTotalResults() : (results != null ? results.size() : 0);
+        Integer offset = externalResponse.getOffset() != null ? externalResponse.getOffset() : (filters.getOffset() != null ? filters.getOffset() : 0);
+        Integer number = externalResponse.getNumber() != null ? externalResponse.getNumber() : (filters.getNumber() != null ? filters.getNumber() : 10);
+
+        return new RecommendationResponse(results != null ? results : new ArrayList<>(), total, offset, number);
     }
 
-    // Mock data - replace with actual database/service calls
+    // Mock data - replace with actual external API calls
     private List<Recipe> getMockRecipes() {
         List<Recipe> recipes = new ArrayList<>();
 

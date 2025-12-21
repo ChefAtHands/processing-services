@@ -1,6 +1,8 @@
 package com.chefathands.recommendation.dto;
 
 public class RecipeFilters {
+    private Integer number;
+    private Integer offset;
     private Integer minCarbs;
     private Integer maxCarbs;
     private Integer minProtein;
@@ -9,9 +11,26 @@ public class RecipeFilters {
     private Integer maxFat;
     private Integer minCalories;
     private Integer maxCalories;
-    private String category; // breakfast, vegan, dessert, etc.
+    private String diet; // vegetarian, vegan, gluten free, etc.
+    private String type; // main course, dessert, appetizer, breakfast, etc.
 
     public RecipeFilters() {}
+
+    public Integer getNumber() {
+        return number;
+    }
+
+    public void setNumber(Integer number) {
+        this.number = number;
+    }
+
+    public Integer getOffset() {
+        return offset;
+    }
+
+    public void setOffset(Integer offset) {
+        this.offset = offset;
+    }
 
     public Integer getMinCarbs() {
         return minCarbs;
@@ -77,11 +96,19 @@ public class RecipeFilters {
         this.maxCalories = maxCalories;
     }
 
-    public String getCategory() {
-        return category;
+    public String getDiet() {
+        return diet;
     }
 
-    public void setCategory(String category) {
-        this.category = category;
+    public void setDiet(String diet) {
+        this.diet = diet;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
     }
 }

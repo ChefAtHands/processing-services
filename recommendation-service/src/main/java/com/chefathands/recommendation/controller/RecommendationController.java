@@ -8,8 +8,8 @@ import com.chefathands.recommendation.service.RecommendationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
-import javax.validation.constraints.Min;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import java.util.List;
 
 @RestController
@@ -27,13 +27,15 @@ public class RecommendationController {
      * 
      * Search recipes using user's saved ingredients
      * 
-     * Example: GET /api/recommendations?userID=123&offset=0&limit=10&minProtein=50&category=dessert
+     * Example: GET /api/recommendations?userID=123&number=10&offset=0&diet=vegetarian&type=dessert
      */
     @GetMapping
     public ResponseEntity<RecommendationResponse> getRecommendations(
             @RequestParam("userID") @Min(1) Long userId,
+            @RequestParam(value = "number", defaultValue = "10") @Min(1) Integer number,
             @RequestParam(value = "offset", defaultValue = "0") @Min(0) Integer offset,
-            @RequestParam(value = "limit", defaultValue = "10") @Min(1) Integer limit,
+            @RequestParam(value = "diet", required = false) String diet,
+            @RequestParam(value = "type", required = false) String type,
             @RequestParam(value = "minCarbs", required = false) Integer minCarbs,
             @RequestParam(value = "maxCarbs", required = false) Integer maxCarbs,
             @RequestParam(value = "minProtein", required = false) Integer minProtein,
@@ -41,11 +43,14 @@ public class RecommendationController {
             @RequestParam(value = "minFat", required = false) Integer minFat,
             @RequestParam(value = "maxFat", required = false) Integer maxFat,
             @RequestParam(value = "minCalories", required = false) Integer minCalories,
-            @RequestParam(value = "maxCalories", required = false) Integer maxCalories,
-            @RequestParam(value = "category", required = false) String category) {
+            @RequestParam(value = "maxCalories", required = false) Integer maxCalories) {
 
         // Build filters object from query params
         RecipeFilters filters = new RecipeFilters();
+        filters.setNumber(number);
+        filters.setOffset(offset);
+        filters.setDiet(diet);
+        filters.setType(type);
         filters.setMinCarbs(minCarbs);
         filters.setMaxCarbs(maxCarbs);
         filters.setMinProtein(minProtein);
@@ -54,14 +59,9 @@ public class RecommendationController {
         filters.setMaxFat(maxFat);
         filters.setMinCalories(minCalories);
         filters.setMaxCalories(maxCalories);
-        filters.setCategory(category);
 
-        // Get recommendations
-        List<Recipe> recipes = recommendationService.getRecommendationsForUser(userId, offset, limit, filters);
-        int total = recommendationService.getTotalCountForUser(userId, filters);
-
-        // Build response
-        RecommendationResponse response = new RecommendationResponse(recipes, total, offset, limit);
+        // Get recommendations (filtering and pagination handled by external API)
+        RecommendationResponse response = recommendationService.getRecommendationsForUser(userId, filters);
         
         return ResponseEntity.ok(response);
     }
@@ -71,14 +71,16 @@ public class RecommendationController {
      * 
      * Search recipes using ingredients provided in request body
      * 
-     * Example: POST /api/recommendations?userID=123&offset=0&limit=10&minProtein=50&category=dessert
+     * Example: POST /api/recommendations?userID=123&number=10&offset=0&diet=vegan&type=main course
      * Body: { "ingredients": [{"name": "tomato", "quantity": 4, "ingredientID": 1}, ...] }
      */
     @PostMapping
     public ResponseEntity<RecommendationResponse> getRecommendationsByIngredients(
             @RequestParam("userID") @Min(1) Long userId,
+            @RequestParam(value = "number", defaultValue = "10") @Min(1) Integer number,
             @RequestParam(value = "offset", defaultValue = "0") @Min(0) Integer offset,
-            @RequestParam(value = "limit", defaultValue = "10") @Min(1) Integer limit,
+            @RequestParam(value = "diet", required = false) String diet,
+            @RequestParam(value = "type", required = false) String type,
             @RequestParam(value = "minCarbs", required = false) Integer minCarbs,
             @RequestParam(value = "maxCarbs", required = false) Integer maxCarbs,
             @RequestParam(value = "minProtein", required = false) Integer minProtein,
@@ -87,11 +89,14 @@ public class RecommendationController {
             @RequestParam(value = "maxFat", required = false) Integer maxFat,
             @RequestParam(value = "minCalories", required = false) Integer minCalories,
             @RequestParam(value = "maxCalories", required = false) Integer maxCalories,
-            @RequestParam(value = "category", required = false) String category,
             @Valid @RequestBody RecommendationRequest request) {
 
         // Build filters object from query params
         RecipeFilters filters = new RecipeFilters();
+        filters.setNumber(number);
+        filters.setOffset(offset);
+        filters.setDiet(diet);
+        filters.setType(type);
         filters.setMinCarbs(minCarbs);
         filters.setMaxCarbs(maxCarbs);
         filters.setMinProtein(minProtein);
@@ -100,19 +105,12 @@ public class RecommendationController {
         filters.setMaxFat(maxFat);
         filters.setMinCalories(minCalories);
         filters.setMaxCalories(maxCalories);
-        filters.setCategory(category);
 
-        // Get recommendations based on provided ingredients
-        List<Recipe> recipes = recommendationService.getRecommendationsByIngredients(
+        // Get recommendations based on provided ingredients (filtering and pagination handled by external API)
+        RecommendationResponse response = recommendationService.getRecommendationsByIngredients(
             request.getIngredients(), 
-            offset, 
-            limit, 
             filters
         );
-        int total = recommendationService.getTotalCountByIngredients(request.getIngredients(), filters);
-
-        // Build response
-        RecommendationResponse response = new RecommendationResponse(recipes, total, offset, limit);
         
         return ResponseEntity.ok(response);
     }
