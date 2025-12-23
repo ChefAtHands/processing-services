@@ -1,18 +1,21 @@
 package com.chefathands.recommendation.service;
 
 import com.chefathands.recommendation.client.IngredientServiceClient;
+import com.chefathands.recommendation.client.RecipeSearchClient;
+import com.chefathands.recommendation.client.RecipeSearchRequest;
+import com.chefathands.recommendation.client.RecipeSearchResponse;
 import com.chefathands.recommendation.dto.IngredientRequest;
 import com.chefathands.recommendation.dto.RecipeFilters;
 import com.chefathands.recommendation.dto.RecommendationResponse;
 import com.chefathands.recommendation.dto.UserIngredientDTO;
 import com.chefathands.recommendation.model.Recipe;
-import com.chefathands.recommendation.model.RecipeIngredient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -22,21 +25,20 @@ public class RecommendationService {
     private static final Logger logger = LoggerFactory.getLogger(RecommendationService.class);
     
     private final IngredientServiceClient ingredientServiceClient;
-    private final com.chefathands.recommendation.client.RecipeSearchClient recipeSearchClient;
+    private final RecipeSearchClient recipeSearchClient;
+    private final RestTemplate restTemplate;
+    
+    @Value("${ingredient.service.url:http://localhost:8081}")
+    private String ingredientServiceUrl;
     
     public RecommendationService(IngredientServiceClient ingredientServiceClient,
-                                 com.chefathands.recommendation.client.RecipeSearchClient recipeSearchClient) {
+                                 RecipeSearchClient recipeSearchClient,
+                                 RestTemplate restTemplate) {
         this.ingredientServiceClient = ingredientServiceClient;
         this.recipeSearchClient = recipeSearchClient;
+        this.restTemplate = restTemplate;
     }
 
-    /**
-     * Get recipe recommendations based on user's saved ingredients
-     * 
-     * @param userId User ID
-     * @param filters Recipe filters (diet, type, nutritional values, pagination)
-     * @return RecommendationResponse with recipes and metadata
-     */
     public RecommendationResponse getRecommendationsForUser(Long userId, RecipeFilters filters) {
         logger.info("Getting recommendations for user {}", userId);
         
@@ -44,19 +46,41 @@ public class RecommendationService {
         List<UserIngredientDTO> userIngredients = ingredientServiceClient.getUserIngredients(userId);
         logger.debug("User {} has {} saved ingredients", userId, userIngredients.size());
         
-        // 2. Convert to ingredient names for external API
-        List<String> ingredientNames = userIngredients.stream()
-            .map(ui -> "ingredient_" + ui.getIngredientId()) // TODO: Map IDs to actual names
-            .collect(Collectors.toList());
-        
-        if (ingredientNames.isEmpty()) {
+        if (userIngredients.isEmpty()) {
             logger.info("User {} has no ingredients, returning empty result", userId);
             return new RecommendationResponse(new ArrayList<>(), 0, 
                 filters.getOffset() != null ? filters.getOffset() : 0, 
                 filters.getNumber() != null ? filters.getNumber() : 10);
         }
         
-        // 3. Call external API service with filters (handles filtering and pagination)
+        // 2. Fetch ingredient names from ingredient-service
+        List<String> ingredientNames = new ArrayList<>();
+        for (UserIngredientDTO userIngredient : userIngredients) {
+            try {
+                String url = ingredientServiceUrl + "/api/ingredients/" + userIngredient.getIngredientId();
+                logger.debug("Fetching ingredient name from: {}", url);
+                
+                // Call ingredient-service to get ingredient details
+                IngredientDTO ingredient = restTemplate.getForObject(url, IngredientDTO.class);
+                if (ingredient != null && ingredient.getName() != null) {
+                    ingredientNames.add(ingredient.getName());
+                    logger.debug("Added ingredient: {}", ingredient.getName());
+                }
+            } catch (Exception e) {
+                logger.error("Error fetching ingredient {}: {}", userIngredient.getIngredientId(), e.getMessage());
+            }
+        }
+        
+        if (ingredientNames.isEmpty()) {
+            logger.info("Could not resolve ingredient names for user {}", userId);
+            return new RecommendationResponse(new ArrayList<>(), 0,
+                filters.getOffset() != null ? filters.getOffset() : 0,
+                filters.getNumber() != null ? filters.getNumber() : 10);
+        }
+        
+        logger.info("Resolved ingredient names: {}", ingredientNames);
+        
+        // 3. Call recipe-search-service with ingredient names
         RecipeSearchRequest searchRequest = new RecipeSearchRequest();
         searchRequest.setIngredients(ingredientNames);
         searchRequest.setNumber(filters.getNumber() != null ? filters.getNumber() : 10);
@@ -74,7 +98,6 @@ public class RecommendationService {
 
         RecipeSearchResponse externalResponse = recipeSearchClient.search(searchRequest);
         if (externalResponse == null) {
-            // Fallback to empty
             return new RecommendationResponse(new ArrayList<>(), 0,
                 filters.getOffset() != null ? filters.getOffset() : 0,
                 filters.getNumber() != null ? filters.getNumber() : 10);
@@ -88,19 +111,13 @@ public class RecommendationService {
         return new RecommendationResponse(results != null ? results : new ArrayList<>(), total, offset, number);
     }
 
-    /**
-     * Get recipe recommendations based on provided ingredients
-     * 
-     * @param ingredients List of ingredients with quantities
-     * @param filters Recipe filters (diet, type, nutritional values, pagination)
-     * @return RecommendationResponse with recipes and metadata
-     */
+    // ...rest of the code stays the same...
+    
     public RecommendationResponse getRecommendationsByIngredients(List<IngredientRequest> ingredients, 
                                                                    RecipeFilters filters) {
         logger.info("Getting recommendations for {} provided ingredients",
             ingredients != null ? ingredients.size() : 0);
 
-        // Convert to ingredient names for external API
         List<String> ingredientNames = ingredients.stream()
             .map(IngredientRequest::getName)
             .collect(Collectors.toList());
@@ -112,8 +129,7 @@ public class RecommendationService {
                 filters.getNumber() != null ? filters.getNumber() : 10);
         }
 
-        // Build request for external recipe-search-service
-        com.chefathands.recommendation.client.RecipeSearchRequest searchRequest = new com.chefathands.recommendation.client.RecipeSearchRequest();
+        RecipeSearchRequest searchRequest = new RecipeSearchRequest();
         searchRequest.setIngredients(ingredientNames);
         searchRequest.setNumber(filters.getNumber() != null ? filters.getNumber() : 10);
         searchRequest.setOffset(filters.getOffset() != null ? filters.getOffset() : 0);
@@ -128,9 +144,8 @@ public class RecommendationService {
         searchRequest.setMinFat(filters.getMinFat());
         searchRequest.setMaxFat(filters.getMaxFat());
 
-        com.chefathands.recommendation.client.RecipeSearchResponse externalResponse = recipeSearchClient.search(searchRequest);
+        RecipeSearchResponse externalResponse = recipeSearchClient.search(searchRequest);
         if (externalResponse == null) {
-            // Fallback to empty
             return new RecommendationResponse(new ArrayList<>(), 0,
                 filters.getOffset() != null ? filters.getOffset() : 0,
                 filters.getNumber() != null ? filters.getNumber() : 10);
@@ -143,86 +158,203 @@ public class RecommendationService {
 
         return new RecommendationResponse(results != null ? results : new ArrayList<>(), total, offset, number);
     }
-
-    // Mock data - replace with actual external API calls
-    private List<Recipe> getMockRecipes() {
-        List<Recipe> recipes = new ArrayList<>();
-
-        Recipe recipe1 = new Recipe(1L, "Tomato Pasta", "Delicious pasta with tomatoes", "dinner");
-        recipe1.setCalories(450);
-        recipe1.setProtein(15);
-        recipe1.setCarbs(60);
-        recipe1.setFat(12);
-        recipe1.setPreparationTime(30);
-        recipe1.setServings(2);
-        recipe1.setIngredients(Arrays.asList(
-            new RecipeIngredient(1L, "tomato", 4, "pcs"),
-            new RecipeIngredient(2L, "pasta", 200, "g")
-        ));
-        recipe1.setInstructions(Arrays.asList(
-            "Boil water and cook pasta",
-            "Prepare tomato sauce",
-            "Mix and serve"
-        ));
-        recipes.add(recipe1);
-
-        Recipe recipe2 = new Recipe(2L, "Chocolate Cake", "Rich chocolate dessert", "dessert");
-        recipe2.setCalories(550);
-        recipe2.setProtein(8);
-        recipe2.setCarbs(75);
-        recipe2.setFat(25);
-        recipe2.setPreparationTime(60);
-        recipe2.setServings(8);
-        recipe2.setIngredients(Arrays.asList(
-            new RecipeIngredient(5L, "milk", 200, "ml"),
-            new RecipeIngredient(6L, "chocolate", 100, "g"),
-            new RecipeIngredient(7L, "flour", 250, "g")
-        ));
-        recipe2.setInstructions(Arrays.asList(
-            "Mix dry ingredients",
-            "Add wet ingredients",
-            "Bake at 180C for 45 minutes"
-        ));
-        recipes.add(recipe2);
-
-        Recipe recipe3 = new Recipe(3L, "Meat Stew", "Hearty meat stew", "dinner");
-        recipe3.setCalories(600);
-        recipe3.setProtein(45);
-        recipe3.setCarbs(30);
-        recipe3.setFat(35);
-        recipe3.setPreparationTime(120);
-        recipe3.setServings(4);
-        recipe3.setIngredients(Arrays.asList(
-            new RecipeIngredient(3L, "meat", 500, "g"),
-            new RecipeIngredient(1L, "tomato", 2, "pcs"),
-            new RecipeIngredient(8L, "onion", 1, "pcs")
-        ));
-        recipe3.setInstructions(Arrays.asList(
-            "Brown the meat",
-            "Add vegetables and liquid",
-            "Simmer for 2 hours"
-        ));
-        recipes.add(recipe3);
-
-        Recipe recipe4 = new Recipe(4L, "Vegan Breakfast Bowl", "Healthy morning bowl", "breakfast");
-        recipe4.setCalories(350);
-        recipe4.setProtein(12);
-        recipe4.setCarbs(55);
-        recipe4.setFat(8);
-        recipe4.setPreparationTime(15);
-        recipe4.setServings(1);
-        recipe4.setIngredients(Arrays.asList(
-            new RecipeIngredient(9L, "oats", 50, "g"),
-            new RecipeIngredient(10L, "banana", 1, "pcs"),
-            new RecipeIngredient(5L, "milk", 150, "ml")
-        ));
-        recipe4.setInstructions(Arrays.asList(
-            "Cook oats with milk",
-            "Top with sliced banana",
-            "Serve warm"
-        ));
-        recipes.add(recipe4);
-
-        return recipes;
+    
+    // Helper DTO class
+    public static class IngredientDTO {
+        private Integer ingredientId;
+        private String name;
+        private String category;
+        
+        public Integer getIngredientId() { return ingredientId; }
+        public void setIngredientId(Integer ingredientId) { this.ingredientId = ingredientId; }
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getCategory() { return category; }
+        public void setCategory(String category) { this.category = category; }
     }
+}package com.chefathands.recipesearch.service;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import com.chefathands.recipesearch.client.SpoonacularClient;
+import com.chefathands.recipesearch.dto.RecipeSearchRequest;
+import com.chefathands.recipesearch.dto.RecipeSearchResponse;
+import com.chefathands.recipesearch.model.Recipe;
+import com.chefathands.recipesearch.model.RecipeCache;
+import com.chefathands.recipesearch.repository.RecipeCacheRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+@Service
+public class RecipeSearchService {
+
+    private static final Logger logger = LoggerFactory.getLogger(RecipeSearchService.class);
+    private static final int CACHE_EXPIRY_HOURS = 24;
+
+    private final SpoonacularClient spoonacularClient;
+    private final RecipeCacheRepository recipeCacheRepository;
+    private final ObjectMapper objectMapper;
+
+    public RecipeSearchService(SpoonacularClient spoonacularClient, 
+                              RecipeCacheRepository recipeCacheRepository,
+                              ObjectMapper objectMapper) {
+        this.spoonacularClient = spoonacularClient;
+        this.recipeCacheRepository = recipeCacheRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * Search recipes by ingredients with caching
+     */
+    public RecipeSearchResponse searchRecipes(RecipeSearchRequest request) {
+        logger.info("Searching recipes with ingredients: {}", request.getIngredients());
+
+        // Create a cache key from the search parameters
+        String cacheKey = generateCacheKey(request);
+        logger.debug("Generated cache key: {}", cacheKey);
+
+        // Check if we have cached results for this exact search
+        LocalDateTime cacheExpiry = LocalDateTime.now().minusHours(CACHE_EXPIRY_HOURS);
+        
+        // TODO: Check search cache table here (not implemented yet)
+        // For now, we'll check if individual recipes are cached
+        
+        try {
+            // Call Spoonacular API
+            JsonNode response = spoonacularClient.searchRecipesByIngredients(request);
+            
+            // Parse response
+            List<Recipe> recipes = new ArrayList<>();
+            JsonNode resultsNode = response.get("results");
+            
+            if (resultsNode != null && resultsNode.isArray()) {
+                for (JsonNode node : resultsNode) {
+                    try {
+                        logger.debug("Processing recipe node: {}", node.toString());
+                        
+                        Long recipeId = node.get("id").asLong();
+                        
+                        // Check if this specific recipe is already cached
+                        Optional<RecipeCache> cachedRecipe = recipeCacheRepository
+                            .findBySpoonacularIdAndCachedAtAfter(recipeId, cacheExpiry);
+                        
+                        Recipe recipe;
+                        if (cachedRecipe.isPresent()) {
+                            logger.info("Recipe {} found in cache", recipeId);
+                            recipe = objectMapper.readValue(cachedRecipe.get().getRecipeData(), Recipe.class);
+                        } else {
+                            logger.info("Recipe {} not in cache, parsing from API response", recipeId);
+                            recipe = objectMapper.treeToValue(node, Recipe.class);
+                            // Cache this recipe
+                            cacheRecipe(node);
+                        }
+                        
+                        recipes.add(recipe);
+                    } catch (Exception e) {
+                        logger.error("Error parsing recipe node", e);
+                    }
+                }
+            }
+
+            Integer totalResults = response.has("totalResults") ? response.get("totalResults").asInt() : recipes.size();
+            Integer offset = response.has("offset") ? response.get("offset").asInt() : 0;
+            Integer number = response.has("number") ? response.get("number").asInt() : recipes.size();
+
+            logger.info("Found {} recipes out of {} total results", recipes.size(), totalResults);
+
+            return new RecipeSearchResponse(recipes, totalResults, offset, number);
+
+        } catch (Exception e) {
+            logger.error("Error searching recipes", e);
+            throw new RuntimeException("Failed to search recipes: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Generate a unique cache key based on search parameters
+     */
+    private String generateCacheKey(RecipeSearchRequest request) {
+        StringBuilder key = new StringBuilder();
+        
+        // Sort ingredients to ensure consistent key
+        List<String> ingredients = new ArrayList<>(request.getIngredients());
+        ingredients.sort(String::compareTo);
+        key.append("ingredients:").append(String.join(",", ingredients));
+        
+        if (request.getType() != null) key.append("|type:").append(request.getType());
+        if (request.getDiet() != null) key.append("|diet:").append(request.getDiet());
+        if (request.getMinProtein() != null) key.append("|minProtein:").append(request.getMinProtein());
+        if (request.getMaxProtein() != null) key.append("|maxProtein:").append(request.getMaxProtein());
+        if (request.getMinCarbs() != null) key.append("|minCarbs:").append(request.getMinCarbs());
+        if (request.getMaxCarbs() != null) key.append("|maxCarbs:").append(request.getMaxCarbs());
+        if (request.getMinCalories() != null) key.append("|minCalories:").append(request.getMinCalories());
+        if (request.getMaxCalories() != null) key.append("|maxCalories:").append(request.getMaxCalories());
+        if (request.getNumber() != null) key.append("|number:").append(request.getNumber());
+        if (request.getOffset() != null) key.append("|offset:").append(request.getOffset());
+        
+        return key.toString();
+    }
+
+    /**
+     * Get recipe details by ID (check cache first)
+     */
+    public Recipe getRecipeById(Long recipeId) {
+        logger.info("Fetching recipe with ID: {}", recipeId);
+
+        // Check cache first
+        Optional<RecipeCache> cachedRecipe = recipeCacheRepository.findBySpoonacularIdAndCachedAtAfter(
+                recipeId, 
+                LocalDateTime.now().minusHours(CACHE_EXPIRY_HOURS)
+        );
+
+        if (cachedRecipe.isPresent()) {
+            logger.info("Recipe found in cache: {}", recipeId);
+            try {
+                return objectMapper.readValue(cachedRecipe.get().getRecipeData(), Recipe.class);
+            } catch (Exception e) {
+                logger.error("Error parsing cached recipe", e);
+            }
+        }
+
+        // Fetch from API if not in cache
+        Recipe recipe = spoonacularClient.getRecipeDetails(recipeId);
+        
+        // Convert Recipe to JsonNode for caching
+        try {
+            JsonNode recipeNode = objectMapper.valueToTree(recipe);
+            cacheRecipe(recipeNode);
+        } catch (Exception e) {
+            logger.error("Error converting recipe to JSON for caching", e);
+        }
+        
+        return recipe;
+    }
+
+    /**
+     * Cache recipe data
+     */
+    private void cacheRecipe(JsonNode recipeNode) {
+        try {
+            Long spoonacularId = recipeNode.get("id").asLong();
+            String recipeJson = recipeNode.toString();
+            
+            // Extract title from the JSON
+            String title = recipeNode.has("title") ? recipeNode.get("title").asText() : "Unknown Recipe";
+            
+            RecipeCache cache = new RecipeCache(spoonacularId, recipeJson, LocalDateTime.now());
+            cache.setTitle(title);  // Set the title before saving
+            
+            recipeCacheRepository.save(cache);
+            logger.info("Successfully cached recipe: {} (ID: {})", title, spoonacularId);
+        } catch (Exception e) {
+            logger.error("Error caching recipe: {}", recipeNode.get("id").asLong(), e);
+        }
+    }   
 }
