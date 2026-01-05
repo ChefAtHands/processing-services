@@ -28,7 +28,7 @@ public class RecommendationService {
     private final RecipeSearchClient recipeSearchClient;
     private final RestTemplate restTemplate;
     
-    @Value("${ingredient.service.url:http://localhost:8081}")
+    @Value("${services.ingredient.url:http://localhost:8081}")
     private String ingredientServiceUrl;
     
     public RecommendationService(IngredientServiceClient ingredientServiceClient,

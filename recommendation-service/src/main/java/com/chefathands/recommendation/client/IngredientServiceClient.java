@@ -23,7 +23,7 @@ public class IngredientServiceClient {
     
     public IngredientServiceClient(
             RestTemplate restTemplate,
-            @Value("${ingredient.service.url:http://localhost:8081}") String ingredientServiceUrl) {
+            @Value("${services.ingredient.url:http://localhost:8081}") String ingredientServiceUrl) {
         this.restTemplate = restTemplate;
         this.ingredientServiceUrl = ingredientServiceUrl;
     }

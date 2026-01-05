@@ -18,7 +18,7 @@ public class RecipeSearchClient {
     private final String recipeSearchUrl;
 
     public RecipeSearchClient(RestTemplate restTemplate,
-                              @Value("${recipe.search.url:http://localhost:8085}") String recipeSearchUrl) {
+                              @Value("${services.recipe-search.url:http://localhost:8085}") String recipeSearchUrl) {
         this.restTemplate = restTemplate;
         this.recipeSearchUrl = recipeSearchUrl;
     }
