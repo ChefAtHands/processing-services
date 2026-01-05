@@ -146,9 +146,3 @@ curl -v -H "Content-Type: application/json" -d '{\"ingredients\":[{\"name\":\"to
 - **Models**: Domain entities (Recipe, RecipeIngredient)
 - **Exception Handling**: Global exception handler for validation errors
 
-## Notes
-
-- Currently uses mock data for demonstration
-- TODO: Integrate with actual ingredient service and recipe database
-- TODO: Implement user ingredient retrieval
-- TODO: Add recipe ranking algorithm based on ingredient match percentage
