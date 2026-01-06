@@ -3,124 +3,50 @@ package com.chefathands.recommendation.model;
 import java.util.List;
 
 public class Recipe {
+
     private Long id;
-    private String name;
-    private String description;
-    private String category;
-    private Integer preparationTime; // in minutes
+    private String title;
+    private String image;
+    private Integer readyInMinutes;
     private Integer servings;
-    
-    // Nutritional information
-    private Integer calories;
-    private Integer protein;
-    private Integer carbs;
-    private Integer fat;
-    
-    private List<RecipeIngredient> ingredients;
-    private List<String> instructions;
+    private String sourceUrl;
+    private String summary;
+
+    private List<ExtendedIngredient> extendedIngredients;
+    private List<AnalyzedInstruction> analyzedInstructions;
 
     public Recipe() {}
 
-    public Recipe(Long id, String name, String description, String category) {
-        this.id = id;
-        this.name = name;
-        this.description = description;
-        this.category = category;
+    // Getters and setters
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
+
+    public String getImage() { return image; }
+    public void setImage(String image) { this.image = image; }
+
+    public Integer getReadyInMinutes() { return readyInMinutes; }
+    public void setReadyInMinutes(Integer readyInMinutes) { this.readyInMinutes = readyInMinutes; }
+
+    public Integer getServings() { return servings; }
+    public void setServings(Integer servings) { this.servings = servings; }
+
+    public String getSourceUrl() { return sourceUrl; }
+    public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
+
+    public String getSummary() { return summary; }
+    public void setSummary(String summary) { this.summary = summary; }
+
+    public List<ExtendedIngredient> getExtendedIngredients() { return extendedIngredients; }
+    public void setExtendedIngredients(List<ExtendedIngredient> extendedIngredients) {
+        this.extendedIngredients = extendedIngredients;
     }
 
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public String getCategory() {
-        return category;
-    }
-
-    public void setCategory(String category) {
-        this.category = category;
-    }
-
-    public Integer getPreparationTime() {
-        return preparationTime;
-    }
-
-    public void setPreparationTime(Integer preparationTime) {
-        this.preparationTime = preparationTime;
-    }
-
-    public Integer getServings() {
-        return servings;
-    }
-
-    public void setServings(Integer servings) {
-        this.servings = servings;
-    }
-
-    public Integer getCalories() {
-        return calories;
-    }
-
-    public void setCalories(Integer calories) {
-        this.calories = calories;
-    }
-
-    public Integer getProtein() {
-        return protein;
-    }
-
-    public void setProtein(Integer protein) {
-        this.protein = protein;
-    }
-
-    public Integer getCarbs() {
-        return carbs;
-    }
-
-    public void setCarbs(Integer carbs) {
-        this.carbs = carbs;
-    }
-
-    public Integer getFat() {
-        return fat;
-    }
-
-    public void setFat(Integer fat) {
-        this.fat = fat;
-    }
-
-    public List<RecipeIngredient> getIngredients() {
-        return ingredients;
-    }
-
-    public void setIngredients(List<RecipeIngredient> ingredients) {
-        this.ingredients = ingredients;
-    }
-
-    public List<String> getInstructions() {
-        return instructions;
-    }
-
-    public void setInstructions(List<String> instructions) {
-        this.instructions = instructions;
+    public List<AnalyzedInstruction> getAnalyzedInstructions() { return analyzedInstructions; }
+    public void setAnalyzedInstructions(List<AnalyzedInstruction> analyzedInstructions) {
+        this.analyzedInstructions = analyzedInstructions;
     }
 }

@@ -21,94 +21,188 @@ import java.util.stream.Collectors;
 
 @Service
 public class RecommendationService {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(RecommendationService.class);
-    
+
     private final IngredientServiceClient ingredientServiceClient;
     private final RecipeSearchClient recipeSearchClient;
     private final RestTemplate restTemplate;
-    
-    @Value("${services.ingredient.url:http://localhost:8081}")
+
+    @Value("${ingredient.service.url:http://localhost:8081}")
     private String ingredientServiceUrl;
-    
-    public RecommendationService(IngredientServiceClient ingredientServiceClient,
-                                 RecipeSearchClient recipeSearchClient,
-                                 RestTemplate restTemplate) {
+
+    public RecommendationService(
+            IngredientServiceClient ingredientServiceClient,
+            RecipeSearchClient recipeSearchClient,
+            RestTemplate restTemplate
+    ) {
         this.ingredientServiceClient = ingredientServiceClient;
         this.recipeSearchClient = recipeSearchClient;
         this.restTemplate = restTemplate;
     }
 
+    // ------------------------------------------------------------
+    // GET recommendations for a user
+    // ------------------------------------------------------------
     public RecommendationResponse getRecommendationsForUser(Long userId, RecipeFilters filters) {
+
         logger.info("Getting recommendations for user {}", userId);
-        
-        // 1. Fetch user's saved ingredients from ingredient-service
+
+        // 1. Fetch user's saved ingredients
         List<UserIngredientDTO> userIngredients = ingredientServiceClient.getUserIngredients(userId);
-        logger.debug("User {} has {} saved ingredients", userId, userIngredients.size());
-        
+
         if (userIngredients.isEmpty()) {
-            logger.info("User {} has no ingredients, returning empty result", userId);
-            return new RecommendationResponse(new ArrayList<>(), 0, 
-                filters.getOffset() != null ? filters.getOffset() : 0, 
-                filters.getNumber() != null ? filters.getNumber() : 10);
+            return emptyResponse(filters);
         }
-        
-        // 2. Fetch ingredient names from ingredient-service
-        List<String> ingredientNames = new ArrayList<>();
-        for (UserIngredientDTO userIngredient : userIngredients) {
-            try {
-                String url = ingredientServiceUrl + "/api/ingredients/" + userIngredient.getIngredientId();
-                logger.debug("Fetching ingredient name from: {}", url);
-                
-                // Call ingredient-service to get ingredient details
-                IngredientDTO ingredient = restTemplate.getForObject(url, IngredientDTO.class);
-                if (ingredient != null && ingredient.getName() != null) {
-                    ingredientNames.add(ingredient.getName());
-                    logger.debug("Added ingredient: {}", ingredient.getName());
-                }
-            } catch (Exception e) {
-                logger.error("Error fetching ingredient {}: {}", userIngredient.getIngredientId(), e.getMessage());
-            }
-        }
-        
+
+        // 2. Resolve ingredient names
+        List<String> ingredientNames = resolveIngredientNames(userIngredients);
+
         if (ingredientNames.isEmpty()) {
-            logger.info("Could not resolve ingredient names for user {}", userId);
-            return new RecommendationResponse(new ArrayList<>(), 0,
-                filters.getOffset() != null ? filters.getOffset() : 0,
-                filters.getNumber() != null ? filters.getNumber() : 10);
+            return emptyResponse(filters);
         }
-        
-        logger.info("Resolved ingredient names: {}", ingredientNames);
-        
-        // 3. Call recipe-search-service with ingredient names
-        RecipeSearchRequest searchRequest = new RecipeSearchRequest();
-        searchRequest.setIngredients(ingredientNames);
-        searchRequest.setNumber(filters.getNumber() != null ? filters.getNumber() : 10);
-        searchRequest.setOffset(filters.getOffset() != null ? filters.getOffset() : 0);
-        searchRequest.setDiet(filters.getDiet());
-        searchRequest.setType(filters.getType());
-        searchRequest.setMinProtein(filters.getMinProtein());
-        searchRequest.setMaxProtein(filters.getMaxProtein());
-        searchRequest.setMinCarbs(filters.getMinCarbs());
-        searchRequest.setMaxCarbs(filters.getMaxCarbs());
-        searchRequest.setMinCalories(filters.getMinCalories());
-        searchRequest.setMaxCalories(filters.getMaxCalories());
-        searchRequest.setMinFat(filters.getMinFat());
-        searchRequest.setMaxFat(filters.getMaxFat());
+
+        // 3. Build search request
+        RecipeSearchRequest searchRequest = buildSearchRequest(ingredientNames, filters);
+
+        // 4. Call recipe-search-service
+        RecipeSearchResponse externalResponse = recipeSearchClient.search(searchRequest);
+
+        return buildResponse(externalResponse, filters);
+    }
+
+    // ------------------------------------------------------------
+    // POST recommendations for provided ingredients
+    // ------------------------------------------------------------
+    public RecommendationResponse getRecommendationsByIngredients(
+            List<IngredientRequest> ingredients,
+            RecipeFilters filters
+    ) {
+
+        logger.info("Getting recommendations for {} provided ingredients",
+                ingredients != null ? ingredients.size() : 0);
+
+        List<String> ingredientNames = ingredients.stream()
+                .map(IngredientRequest::getName)
+                .collect(Collectors.toList());
+
+        if (ingredientNames.isEmpty()) {
+            return emptyResponse(filters);
+        }
+
+        RecipeSearchRequest searchRequest = buildSearchRequest(ingredientNames, filters);
 
         RecipeSearchResponse externalResponse = recipeSearchClient.search(searchRequest);
-        if (externalResponse == null) {
-            return new RecommendationResponse(new ArrayList<>(), 0,
-                filters.getOffset() != null ? filters.getOffset() : 0,
-                filters.getNumber() != null ? filters.getNumber() : 10);
+
+        return buildResponse(externalResponse, filters);
+    }
+
+    // ------------------------------------------------------------
+    // Helper: Build RecipeSearchRequest with all filters
+    // ------------------------------------------------------------
+    private RecipeSearchRequest buildSearchRequest(List<String> ingredientNames, RecipeFilters filters) {
+
+        RecipeSearchRequest req = new RecipeSearchRequest();
+
+        req.setIngredients(ingredientNames);
+        req.setNumber(filters.getNumber());
+        req.setOffset(filters.getOffset());
+
+        req.setDiet(filters.getDiet());
+        req.setType(filters.getType());
+
+        req.setMinProtein(filters.getMinProtein());
+        req.setMaxProtein(filters.getMaxProtein());
+        req.setMinCarbs(filters.getMinCarbs());
+        req.setMaxCarbs(filters.getMaxCarbs());
+        req.setMinCalories(filters.getMinCalories());
+        req.setMaxCalories(filters.getMaxCalories());
+        req.setMinFat(filters.getMinFat());
+        req.setMaxFat(filters.getMaxFat());
+
+        return req;
+    }
+
+    // ------------------------------------------------------------
+    // Helper: Build RecommendationResponse from external API
+    // ------------------------------------------------------------
+    private RecommendationResponse buildResponse(RecipeSearchResponse external, RecipeFilters filters) {
+
+        if (external == null) {
+            return emptyResponse(filters);
         }
 
-        List<Recipe> results = externalResponse.getResults();
-        Integer total = externalResponse.getTotalResults() != null ? externalResponse.getTotalResults() : (results != null ? results.size() : 0);
-        Integer offset = externalResponse.getOffset() != null ? externalResponse.getOffset() : (filters.getOffset() != null ? filters.getOffset() : 0);
-        Integer number = externalResponse.getNumber() != null ? externalResponse.getNumber() : (filters.getNumber() != null ? filters.getNumber() : 10);
+        List<Recipe> results = external.getResults() != null
+                ? external.getResults()
+                : new ArrayList<>();
 
-        return new RecommendationResponse(results != null ? results : new ArrayList<>(), total, offset, number);
+        int total = external.getTotalResults() != null
+                ? external.getTotalResults()
+                : results.size();
+
+        int offset = external.getOffset() != null
+                ? external.getOffset()
+                : filters.getOffset();
+
+        int number = external.getNumber() != null
+                ? external.getNumber()
+                : filters.getNumber();
+
+        return new RecommendationResponse(results, total, offset, number);
+    }
+
+    // ------------------------------------------------------------
+    // Helper: Empty response
+    // ------------------------------------------------------------
+    private RecommendationResponse emptyResponse(RecipeFilters filters) {
+        return new RecommendationResponse(
+                new ArrayList<>(),
+                0,
+                filters.getOffset(),
+                filters.getNumber()
+        );
+    }
+
+    // ------------------------------------------------------------
+    // Helper: Resolve ingredient names from ingredient-service
+    // ------------------------------------------------------------
+    private List<String> resolveIngredientNames(List<UserIngredientDTO> userIngredients) {
+
+        List<String> names = new ArrayList<>();
+
+        for (UserIngredientDTO ui : userIngredients) {
+            try {
+                String url = ingredientServiceUrl + "/api/ingredients/" + ui.getIngredientId();
+                IngredientDTO ingredient = restTemplate.getForObject(url, IngredientDTO.class);
+
+                if (ingredient != null && ingredient.getName() != null) {
+                    names.add(ingredient.getName());
+                }
+
+            } catch (Exception e) {
+                logger.error("Error fetching ingredient {}: {}", ui.getIngredientId(), e.getMessage());
+            }
+        }
+
+        return names;
+    }
+
+    // ------------------------------------------------------------
+    // Helper DTO
+    // ------------------------------------------------------------
+    public static class IngredientDTO {
+        private Integer ingredientId;
+        private String name;
+        private String category;
+
+        public Integer getIngredientId() { return ingredientId; }
+        public void setIngredientId(Integer ingredientId) { this.ingredientId = ingredientId; }
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        public String getCategory() { return category; }
+        public void setCategory(String category) { this.category = category; }
     }
     
     public RecommendationResponse getRecommendationsByIngredients(List<IngredientRequest> ingredients, 
