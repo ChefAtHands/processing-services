@@ -205,63 +205,7 @@ public class RecommendationService {
         public void setCategory(String category) { this.category = category; }
     }
     
-    public RecommendationResponse getRecommendationsByIngredients(List<IngredientRequest> ingredients, 
-                                                                   RecipeFilters filters) {
-        logger.info("Getting recommendations for {} provided ingredients",
-            ingredients != null ? ingredients.size() : 0);
-
-        List<String> ingredientNames = ingredients.stream()
-            .map(IngredientRequest::getName)
-            .collect(Collectors.toList());
-
-        if (ingredientNames.isEmpty()) {
-            logger.info("No ingredients provided, returning empty result");
-            return new RecommendationResponse(new ArrayList<>(), 0,
-                filters.getOffset() != null ? filters.getOffset() : 0,
-                filters.getNumber() != null ? filters.getNumber() : 10);
-        }
-
-        RecipeSearchRequest searchRequest = new RecipeSearchRequest();
-        searchRequest.setIngredients(ingredientNames);
-        searchRequest.setNumber(filters.getNumber() != null ? filters.getNumber() : 10);
-        searchRequest.setOffset(filters.getOffset() != null ? filters.getOffset() : 0);
-        searchRequest.setDiet(filters.getDiet());
-        searchRequest.setType(filters.getType());
-        searchRequest.setMinProtein(filters.getMinProtein());
-        searchRequest.setMaxProtein(filters.getMaxProtein());
-        searchRequest.setMinCarbs(filters.getMinCarbs());
-        searchRequest.setMaxCarbs(filters.getMaxCarbs());
-        searchRequest.setMinCalories(filters.getMinCalories());
-        searchRequest.setMaxCalories(filters.getMaxCalories());
-        searchRequest.setMinFat(filters.getMinFat());
-        searchRequest.setMaxFat(filters.getMaxFat());
-
-        RecipeSearchResponse externalResponse = recipeSearchClient.search(searchRequest);
-        if (externalResponse == null) {
-            return new RecommendationResponse(new ArrayList<>(), 0,
-                filters.getOffset() != null ? filters.getOffset() : 0,
-                filters.getNumber() != null ? filters.getNumber() : 10);
-        }
-
-        List<Recipe> results = externalResponse.getResults();
-        Integer total = externalResponse.getTotalResults() != null ? externalResponse.getTotalResults() : (results != null ? results.size() : 0);
-        Integer offset = externalResponse.getOffset() != null ? externalResponse.getOffset() : (filters.getOffset() != null ? filters.getOffset() : 0);
-        Integer number = externalResponse.getNumber() != null ? externalResponse.getNumber() : (filters.getNumber() != null ? filters.getNumber() : 10);
-
-        return new RecommendationResponse(results != null ? results : new ArrayList<>(), total, offset, number);
-    }
     
-    // Helper DTO class
-    public static class IngredientDTO {
-        private Integer ingredientId;
-        private String name;
-        private String category;
-        
-        public Integer getIngredientId() { return ingredientId; }
-        public void setIngredientId(Integer ingredientId) { this.ingredientId = ingredientId; }
-        public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
-        public String getCategory() { return category; }
-        public void setCategory(String category) { this.category = category; }
-    }
+    
+    
 }
